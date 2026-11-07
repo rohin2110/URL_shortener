@@ -26,6 +26,6 @@ async def redirect(
     settings: SettingsDep,
 ) -> RedirectResponse:
     target = await url_service.resolve_redirect(session, cache, code)
-    info = click_service.ClickInfo.from_request(request, settings.ip_hash_secret)
+    info = click_service.ClickInfo.from_request(request, settings)
     background_tasks.add_task(click_service.record_click, sessionmaker, target.id, info)
     return RedirectResponse(target.url, status_code=status.HTTP_302_FOUND)

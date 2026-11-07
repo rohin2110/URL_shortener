@@ -38,6 +38,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))"   # generates a se
 | `BCRYPT_ROUNDS` | bcrypt cost factor. Default: 12. |
 | `IP_HASH_SECRET` | HMAC key used to hash visitor IPs before they are stored. |
 | `BASE_URL` | Public origin used to build short links, e.g. `https://sho.rt` |
+| `CLIENT_IP_HEADER` | Header that holds the real client IP, set by a trusted proxy, e.g. `Fly-Client-IP` on Fly.io. Leave it empty if clients can reach the app directly. |
 | `URL_CACHE_TTL_SECONDS` | How long a found URL stays in the redirect cache. Default: 86400. |
 | `NOT_FOUND_CACHE_TTL_SECONDS` | How long a "not found" result stays cached. Default: 60. |
 | `RATE_LIMIT_ENABLED` | Turns rate limiting on or off. |
@@ -90,7 +91,44 @@ docker compose up --build          # API on http://localhost:8000, Redis on :637
 
 In development, `app/` and `static/` are bind-mounted into the container and uvicorn runs with `--reload`, so code changes take effect without rebuilding.
 
-> **Running behind a reverse proxy?** Set `FORWARDED_ALLOW_IPS` to the proxy's IP address. Uvicorn (started with `--proxy-headers`) then trusts `X-Forwarded-For`, so rate limits and click IP hashes use the real client IP.
+> **Running behind a reverse proxy?** Rate limits and click IP hashes need the real client IP, not the proxy's.
+> - If the proxy sets its own client-IP header, put that header's name in `CLIENT_IP_HEADER`. On Fly.io it's `Fly-Client-IP`.
+> - Otherwise, set `FORWARDED_ALLOW_IPS` to the proxy's IP address so uvicorn trusts `X-Forwarded-For`.
+
+## Deploying to Fly.io
+
+[`fly.toml`](fly.toml) is already set up for this app:
+- The app listens on port 8000.
+- It runs in the `nrt` (Tokyo) region, next to the Supabase database.
+- Fly checks `/health` to decide whether the app is healthy.
+- The real client IP is read from `Fly-Client-IP`.
+
+To deploy:
+
+```bash
+# 1. Install the Fly CLI and log in
+curl -L https://fly.io/install.sh | sh
+fly auth login
+
+# 2. Replace CHANGE-ME in fly.toml with your app name (twice), then create the app
+#    if it doesn't exist yet:
+fly apps create <app-name>
+
+# 3. Create Redis (Upstash on Fly's private network). Choose region nrt and enable
+#    eviction: Redis only holds cache entries and rate-limit counters.
+fly redis create
+
+# 4. Secrets. Generate new random values; don't reuse your local ones.
+fly secrets set \
+  DATABASE_URL='postgresql+asyncpg://...?ssl=require' \
+  REDIS_URL='redis://default:...@fly-<name>.upstash.io:6379' \
+  JWT_SECRET="$(python3 -c 'import secrets;print(secrets.token_urlsafe(48))')" \
+  IP_HASH_SECRET="$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))')"
+
+# 5. Deploy
+fly deploy
+curl https://<app-name>.fly.dev/health   # → {"status":"ok","database":"ok","redis":"ok"}
+```
 
 ## Running tests
 
