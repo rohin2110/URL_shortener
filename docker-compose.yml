@@ -1,0 +1,62 @@
+services:
+  api:
+    build:
+      context: .
+      target: runtime
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    # Live reload for local development (source is bind-mounted).
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--proxy-headers"]
+    volumes:
+      - ./app:/app/app
+      - ./static:/app/static
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  # ---- test-only services: `docker compose --profile test run --rm tests` ----
+  postgres-test:
+    image: postgres:16-alpine
+    profiles: ["test"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: urlshortener_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d urlshortener_test"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  tests:
+    build:
+      context: .
+      target: test
+    profiles: ["test"]
+    # No env_file on purpose: tests never see the Supabase credentials.
+    environment:
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres-test:5432/urlshortener_test
+      TEST_REDIS_URL: redis://redis:6379/15
+    volumes:
+      - ./app:/app/app
+      - ./static:/app/static
+      - ./tests:/app/tests
+      - ./pyproject.toml:/app/pyproject.toml
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres-test:
+        condition: service_healthy

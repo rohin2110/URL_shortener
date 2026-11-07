@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>URL Shortener</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+  input, button { font: inherit; padding: .4rem .6rem; }
+  input { box-sizing: border-box; }
+  form { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  form input { flex: 1 1 12rem; }
+  li { margin: .4rem 0; word-break: break-all; }
+  small { color: #666; }
+  .err { color: #b00020; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<h1>URL Shortener</h1>
+<p id="msg" class="err" role="alert"></p>
+
+<section id="auth">
+  <form id="auth-form">
+    <input id="email" type="email" placeholder="email" required autocomplete="username">
+    <input id="password" type="password" placeholder="password (min 8 chars)" required minlength="8" autocomplete="current-password">
+    <button name="login">Log in</button>
+    <button name="register">Register</button>
+  </form>
+</section>
+
+<section id="app" hidden>
+  <p><small id="who"></small> <a href="#" id="logout">Log out</a></p>
+  <form id="shorten-form">
+    <input id="url" type="url" placeholder="https://example.com/long/url" required maxlength="2048">
+    <button>Shorten</button>
+  </form>
+  <p id="result" hidden>
+    <a id="result-link" target="_blank" rel="noopener"></a>
+    <button id="copy" type="button">Copy</button>
+  </p>
+  <h2>My links</h2>
+  <ul id="links"></ul>
+</section>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let token = localStorage.getItem("token");
+
+async function api(path, options = {}) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(path, { ...options, headers });
+  const body = res.status === 204 ? null : await res.json();
+  if (res.status === 401 && token) logout();
+  if (!res.ok) {
+    const e = body?.error;
+    throw new Error(e?.details?.[0]?.msg || e?.message || `HTTP ${res.status}`);
+  }
+  return body;
+}
+
+function show() {
+  $("auth").hidden = !!token;
+  $("app").hidden = !token;
+  $("who").textContent = localStorage.getItem("email") || "";
+  if (token) loadLinks();
+}
+
+function logout() {
+  token = null;
+  localStorage.removeItem("token");
+  show();
+}
+
+async function loadLinks() {
+  const { items } = await api("/api/urls?limit=100");
+  $("links").replaceChildren(...items.map((u) => {
+    const li = document.createElement("li");
+    const a = Object.assign(document.createElement("a"), { href: u.short_url, textContent: u.short_url, target: "_blank" });
+    const meta = document.createElement("small");
+    meta.textContent = ` — ${u.click_count} click${u.click_count === 1 ? "" : "s"} — ${u.original_url}`;
+    li.append(a, meta);
+    return li;
+  }));
+}
+
+function run(fn) {
+  return async (event) => {
+    event.preventDefault();
+    $("msg").textContent = "";
+    try { await fn(event); } catch (err) { $("msg").textContent = err.message; }
+  };
+}
+
+$("auth-form").addEventListener("submit", run(async (event) => {
+  const creds = { email: $("email").value, password: $("password").value };
+  if (event.submitter?.name === "register") {
+    await api("/api/auth/register", { method: "POST", body: JSON.stringify(creds) });
+  }
+  const { access_token } = await api("/api/auth/login", { method: "POST", body: JSON.stringify(creds) });
+  token = access_token;
+  localStorage.setItem("token", token);
+  localStorage.setItem("email", creds.email.trim().toLowerCase());
+  $("password").value = "";
+  show();
+}));
+
+$("shorten-form").addEventListener("submit", run(async () => {
+  const u = await api("/api/urls", { method: "POST", body: JSON.stringify({ url: $("url").value }) });
+  $("result-link").href = $("result-link").textContent = u.short_url;
+  $("result").hidden = false;
+  $("url").value = "";
+  await loadLinks();
+}));
+
+$("copy").addEventListener("click", async () => {
+  await navigator.clipboard.writeText($("result-link").textContent);
+  $("copy").textContent = "Copied!";
+  setTimeout(() => ($("copy").textContent = "Copy"), 1500);
+});
+
+$("logout").addEventListener("click", (e) => { e.preventDefault(); logout(); });
+
+show();
+</script>
+</body>
+</html>
