@@ -6,6 +6,7 @@ from functools import lru_cache
 import bcrypt
 import jwt
 from starlette.concurrency import run_in_threadpool
+from starlette.requests import Request
 
 from app.config import Settings
 from app.core.errors import UnauthorizedError
@@ -72,7 +73,17 @@ def decode_access_token(token: str, settings: Settings) -> int:
         raise UnauthorizedError("Invalid token") from None
 
 
-# --- privacy ---------------------------------------------------------------------
+# --- client identity / privacy -----------------------------------------------------
+
+
+def get_client_ip(request: Request, trusted_header: str | None) -> str:
+    """Real client IP: from the proxy's header if one is configured, else the TCP peer."""
+    if trusted_header:
+        forwarded = request.headers.get(trusted_header, "").strip()
+        if forwarded:
+            return forwarded
+    return request.client.host if request.client else "unknown"
+
 
 
 def hash_ip(ip: str, secret: str) -> str:

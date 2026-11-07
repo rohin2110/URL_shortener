@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     # Links / analytics
     base_url: str = "http://localhost:8000"
     ip_hash_secret: str = Field(min_length=16)
+    # Header holding the real client IP, set (and overwritten) by a trusted edge proxy,
+    # e.g. "Fly-Client-IP" on Fly.io. Leave unset when clients can reach the app directly,
+    # otherwise anyone could spoof their IP and dodge rate limits.
+    client_ip_header: str | None = None
 
     # Caching
     url_cache_ttl_seconds: int = Field(default=86_400, gt=0)

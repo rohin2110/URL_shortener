@@ -6,7 +6,8 @@ from fastapi import Request
 from sqlalchemy import insert, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.core.security import hash_ip
+from app.config import Settings
+from app.core.security import get_client_ip, hash_ip
 from app.models import Click, Url
 from app.models.click import MAX_REFERRER_LENGTH, MAX_USER_AGENT_LENGTH
 
@@ -20,12 +21,10 @@ class ClickInfo:
     referrer: str | None
 
     @classmethod
-    def from_request(cls, request: Request, ip_hash_secret: str) -> Self:
-        # request.client is the direct peer, or the X-Forwarded-For client when uvicorn
-        # runs with --proxy-headers behind a trusted proxy (FORWARDED_ALLOW_IPS).
-        ip = request.client.host if request.client else "unknown"
+    def from_request(cls, request: Request, settings: Settings) -> Self:
+        ip = get_client_ip(request, settings.client_ip_header)
         return cls(
-            ip_hash=hash_ip(ip, ip_hash_secret),
+            ip_hash=hash_ip(ip, settings.ip_hash_secret),
             user_agent=request.headers.get("user-agent", "")[:MAX_USER_AGENT_LENGTH] or None,
             referrer=request.headers.get("referer", "")[:MAX_REFERRER_LENGTH] or None,
         )

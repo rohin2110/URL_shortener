@@ -22,7 +22,7 @@ from redis.exceptions import RedisError
 
 from app.core.deps import CurrentUserId, RedisDep, SettingsDep
 from app.core.errors import RateLimitedError
-from app.core.security import hash_ip
+from app.core.security import get_client_ip, hash_ip
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ def limit_by_ip(scope: str, limit_setting: str) -> RateLimitDependency:
     async def dependency(request: Request, settings: SettingsDep, redis: RedisDep) -> None:
         if not settings.rate_limit_enabled:
             return
-        ip = request.client.host if request.client else "unknown"
+        ip = get_client_ip(request, settings.client_ip_header)
         await enforce(
             redis,
             scope,
